@@ -1,0 +1,66 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+variables: 
+  vRequirementsFile: './build/requirements.psd1'
+  vBuildScript: './build/build.ps1'
+  vPsakeFile  : './build/build.psake.ps1'
+  vModulesPath: 'CurrentUser'
+
+trigger:
+- master
+- feature*
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+
+- pwsh: | 
+    . $(vBuildScript) -BuildFile "$(vPsakeFile)" -DependencyFile "$(vRequirementsFile)" -DependencyStore $(vModulesPath) -TaskList BuildOnly -Bootstrap
+  displayName: 'Compile function files into single module'
+  failOnStderr: true
+  workingDirectory: '$(Build.SourcesDirectory)'
+
+- pwsh: |
+    . $(vBuildScript) -BuildFile "$(vPsakeFile)" -DependencyFile "$(vRequirementsFile)" -DependencyStore $(vModulesPath) -TaskList Test
+  displayName: 'Test using PsPester'
+  failOnStderr: true
+  workingDirectory: '$(Build.SourcesDirectory)'
+
+- pwsh: | 
+    . $(vBuildScript) -BuildFile "$(vPsakeFile)" -DependencyFile "$(vRequirementsFile)" -DependencyStore $(vModulesPath) -TaskList Analyze
+  displayName: 'Analyze with PsPester and PsScriptAnalyser'
+  failOnStderr: true
+  workingDirectory: '$(Build.SourcesDirectory)'
+
+- task: PublishTestResults@2
+  inputs:
+    testResultsFormat: 'NUnit'
+    testResultsFiles: 'TestResults/**-RESULTS.xml'
+    mergeTestResults: false
+  displayName: "Publish all test results"
+  condition: succeededOrFailed()
+
+
+- pwsh: | 
+    (Get-Childitem "$(Build.SourcesDirectory)/BuildOutput").FullName
+    (Get-ChildItem "$(Build.ArtifactStagingDirectory)").FullName
+  displayName: 'Analyze with PsPester and PsScriptAnalyser'
+  failOnStderr: true
+  workingDirectory: '$(Build.SourcesDirectory)'
+
+- task: CopyFiles@2
+  inputs:
+    SourceFolder: '$(Build.SourcesDirectory)/BuildOutput'
+    Contents: '**'
+    TargetFolder: '$(Build.ArtifactStagingDirectory)'
+    CleanTargetFolder: true
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'package'
+    publishLocation: 'Container'
